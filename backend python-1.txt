@@ -1,0 +1,65 @@
+from flask import Flask, request, redirect, render_template, session
+import boto3
+
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'
+
+# Initialize AWS services
+s3 = boto3.client('s3')
+dynamodb = boto3.resource('dynamodb', region_name='eu-north-1')
+user_table = dynamodb.Table('mofikry6940044')
+bucket_name = 'finalprojectmo099944'
+
+# Home route
+@app.route('/')
+def home():
+    return render_template('index.html')
+
+# Sign-up route
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user_table.put_item(Item={'userID': username, 'password': password})
+        return redirect('/login')
+    return render_template('signup.html')
+
+# Login route
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        response = user_table.get_item(Key={'userID': username})
+        if 'Item' in response and response['Item']['password'] == password:
+            session['userID'] = username
+            return redirect('/dashboard')
+    return render_template('login.html')
+
+# Dashboard route
+@app.route('/dashboard')
+def dashboard():
+    if 'userID' in session:
+        return render_template('dashboard.html', user=session['userID'])
+    return redirect('/login')
+
+# Upload music
+@app.route('/upload', methods=['POST'])
+def upload():
+    if 'file' not in request.files:
+        return 'No file part'
+    file = request.files['file']
+    if file.filename == '':
+        return 'No selected file'
+    if file:
+        s3.upload_fileobj(file, bucket_name, file.filename)
+        user_table.update_item(
+            Key={'userID': session['userID']},
+            UpdateExpression="SET songs = list_append(if_not_exists(songs, :empty_list), :i)",
+            ExpressionAttributeValues={':i': [file.filename], ':empty_list': []}
+        )
+        return redirect('/dashboard')
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0')
